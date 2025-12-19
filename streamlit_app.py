@@ -11,23 +11,21 @@ import base64
 st.set_page_config(page_title="나는야 야구 스카우터!: 강한 팀을 만들어라", page_icon="⚾", layout="centered")
 
 # 페이지 전반 색감 및 버튼/컨테이너 스타일을 야구 느낌으로 개선
-# 로컬 일러스트(추천 경로: ./assets/field_bg.png)를 우선으로 사용하고, 없으면 그라데이션을 사용
+# 로컬 일러스트(우선순위: ./backgroundimages/baseball_field.avif → ./assets/)를 사용하고, 없으면 그라데이션을 사용
 def _build_background_css():
-    # 먼저 backgroundimages 폴더의 baseballpark 이미지를 우선 사용
+    # 우선 순위: backgroundimages/baseball_field.avif → assets/ 내 파일들
+    candidates = [
+        os.path.join(os.getcwd(), "backgroundimages", "baseball_field.avif"),
+        os.path.join(os.getcwd(), "assets", "field_bg.png"),
+        os.path.join(os.getcwd(), "assets", "field_bg.jpg"),
+        os.path.join(os.getcwd(), "assets", "field_bg.jpeg"),
+        os.path.join(os.getcwd(), "assets", "field_bg.svg"),
+    ]
     found = None
-    bgdir = os.path.join(os.getcwd(), "backgroundimages")
-    preferred_bg = os.path.join(bgdir, "background_baseballpark.jpg")
-    if os.path.isfile(preferred_bg):
-        found = preferred_bg
-    else:
-        assets_dir = os.path.join(os.getcwd(), "assets")
-        # 우선 순위로 찾을 파일명
-        candidates = ["field_bg.png", "field_bg.jpg", "field_bg.jpeg", "field_bg.svg"]
-        for fn in candidates:
-            path = os.path.join(assets_dir, fn)
-            if os.path.isfile(path):
-                found = path
-                break
+    for path in candidates:
+        if os.path.isfile(path):
+            found = path
+            break
 
     if found:
         try:
@@ -42,7 +40,7 @@ def _build_background_css():
             bg_url = f"data:{mime};base64,{b64}"
             return f"""
             <style>
-            .stApp {{ background-image: url('{bg_url}'); background-size: cover; background-position: center top; background-repeat: no-repeat; }}
+            .stApp {{ background-image: url('{bg_url}'); background-size: contain; background-position: center top; background-repeat: no-repeat; background-attachment: fixed; }}
             .block-container {{ background-color: rgba(255,255,255,0.82); border-radius: 12px; padding: 1.2rem 1.4rem; }}
             button.stButton>button {{ background-color: #1f618d; color: white; border-radius: 8px; }}
             .stProgress>div>div>div {{ background: #1f618d; }}
@@ -291,6 +289,11 @@ if 'started' not in st.session_state:
     st.session_state.message = ""
     st.session_state.awaiting_next = False
     st.session_state.pair_swapped = []
+    st.session_state.mvp_mode = False
+    st.session_state.mvp_season_ratings = {}
+    st.session_state.mvp_message = ""
+    st.session_state.mvp_awaiting_next = False
+    st.session_state.balloons_shown = False
 
 st.title("⚾ 나는야 야구 스카우터!: 강한 팀을 만들어라")
 
@@ -324,13 +327,15 @@ else:
         st.write("영입 선수:", ", ".join(st.session_state.team))
 
     # 모든 라운드 완료 시
-    if st.session_state.round >= 9:
+    if st.session_state.round >= 9 and not st.session_state.mvp_mode:
         st.success("축하합니다! 팀 완성🎉 모든 포지션을 채웠습니다.")
-        # 축하 연출: 풍선 애니메이션 + 폭죽 그래픽
-        try:
-            st.balloons()
-        except Exception:
-            pass
+        # 축하 연출: 풍선 애니메이션은 처음에만 한 번 표시
+        if not st.session_state.balloons_shown:
+            try:
+                st.balloons()
+                st.session_state.balloons_shown = True
+            except Exception:
+                pass
 
         st.markdown("## ⚾ 당신의 스카우팅 팀 라인업")
 
@@ -343,6 +348,86 @@ else:
 
         st.markdown("---")
         st.info("당신의 스카우팅이 완료되었습니다! 당신은 뛰어난 스카우터입니다! ⭐")
+
+        # MVP 뽑기 버튼
+        if st.button("🏆 MVP 뽑기", key="mvp_button"):
+            st.session_state.mvp_mode = True
+            # 팀 선수들의 시즌 타율을 랜덤으로 생성
+            st.session_state.mvp_season_ratings = {}
+            for player in st.session_state.team:
+                # 시즌 타율: 0.200 ~ 0.400 사이의 랜덤 값
+                season_rating = round(random.uniform(0.200, 0.400), 3)
+                st.session_state.mvp_season_ratings[player] = season_rating
+            st.session_state.mvp_message = ""
+            st.session_state.mvp_awaiting_next = False
+            st.rerun()  # 즉시 화면 전환
+
+    # MVP 모드
+    elif st.session_state.mvp_mode:
+        st.markdown("---")
+        st.subheader("🏆 시즌이 다 끝났습니다!")
+        st.write("**팀의 선수들 시즌 타율:**")
+
+        # 선수들의 시즌 타율을 표로 표시
+        if st.session_state.mvp_season_ratings:
+            import pandas as pd
+            mvp_data = {
+                "선수명": list(st.session_state.mvp_season_ratings.keys()),
+                "시즌 타율": list(st.session_state.mvp_season_ratings.values()),
+            }
+            df = pd.DataFrame(mvp_data)
+            # HTML 테이블로 직접 생성하여 가운데 정렬 적용
+            html_table = "<table style='width: 100%; text-align: center; margin: 0 auto; border-collapse: collapse;'>"
+            html_table += "<thead><tr style='background-color: #f0f2f6;'>"
+            for col in df.columns:
+                html_table += f"<th style='padding: 10px; border: 1px solid #ddd;'>{col}</th>"
+            html_table += "</tr></thead>"
+            html_table += "<tbody>"
+            for _, row in df.iterrows():
+                html_table += "<tr>"
+                for val in row:
+                    html_table += f"<td style='padding: 10px; border: 1px solid #ddd;'>{val}</td>"
+                html_table += "</tr>"
+            html_table += "</tbody></table>"
+            st.markdown(html_table, unsafe_allow_html=True)
+
+            # 최고 타율 선수 찾기
+            max_player = max(st.session_state.mvp_season_ratings, 
+                           key=st.session_state.mvp_season_ratings.get)
+            max_rating = st.session_state.mvp_season_ratings[max_player]
+
+            # 선수 선택
+            st.write("**가장 타율이 높은 선수를 고르세요!**")
+            choice = st.radio("MVP 후보:", list(st.session_state.mvp_season_ratings.keys()), 
+                            key="mvp_choice")
+
+            # 제출 버튼
+            if st.button("MVP 선정", key="mvp_submit"):
+                if choice == max_player:
+                    st.session_state.mvp_message = f"✅ MVP선정이 완료되었습니다! 🎉\n\n**{choice}** 선수가 MVP로 선정되었습니다!"
+                    st.session_state.mvp_awaiting_next = True
+                else:
+                    # 오답일 경우 힌트 제공
+                    correct_avg = max_rating
+                    selected_avg = st.session_state.mvp_season_ratings[choice]
+                    
+                    # 간단한 힌트: 소수 자리별 비교 (make_hint 함수 대신 직접 구현)
+                    if int(selected_avg) != int(correct_avg):
+                        hint_msg = "정수 부분을 먼저 비교해 보세요."
+                    elif int(selected_avg * 10) % 10 != int(correct_avg * 10) % 10:
+                        hint_msg = "소수 첫째자리를 비교해 보세요."
+                    elif int(selected_avg * 100) % 10 != int(correct_avg * 100) % 10:
+                        hint_msg = "소수 둘째자리를 비교해 보세요."
+                    else:
+                        hint_msg = "소수 셋째자리를 비교해 보세요."
+                    
+                    st.session_state.mvp_message = f"다시 한 번 생각해보세요.\n\n{hint_msg}"
+                
+                st.rerun()  # 화면 강제 새로고침
+
+
+            if st.session_state.mvp_message:
+                st.info(st.session_state.mvp_message)
     else:
         idx = st.session_state.round * 2
         # 이 라운드에서 좌우를 섞을지 확인

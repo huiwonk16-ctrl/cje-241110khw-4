@@ -3,9 +3,70 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import Wedge
+from matplotlib.font_manager import FontProperties
 import numpy as np
+import os
+import base64
 
 st.set_page_config(page_title="나는야 야구 스카우터!: 강한 팀을 만들어라", page_icon="⚾", layout="centered")
+
+# 페이지 전반 색감 및 버튼/컨테이너 스타일을 야구 느낌으로 개선
+# 로컬 일러스트(추천 경로: ./assets/field_bg.png)를 우선으로 사용하고, 없으면 그라데이션을 사용
+def _build_background_css():
+    # 먼저 backgroundimages 폴더의 baseballpark 이미지를 우선 사용
+    found = None
+    bgdir = os.path.join(os.getcwd(), "backgroundimages")
+    preferred_bg = os.path.join(bgdir, "background_baseballpark.jpg")
+    if os.path.isfile(preferred_bg):
+        found = preferred_bg
+    else:
+        assets_dir = os.path.join(os.getcwd(), "assets")
+        # 우선 순위로 찾을 파일명
+        candidates = ["field_bg.png", "field_bg.jpg", "field_bg.jpeg", "field_bg.svg"]
+        for fn in candidates:
+            path = os.path.join(assets_dir, fn)
+            if os.path.isfile(path):
+                found = path
+                break
+
+    if found:
+        try:
+            with open(found, "rb") as f:
+                data = f.read()
+            b64 = base64.b64encode(data).decode()
+            mime = "image/png"
+            if found.lower().endswith(".jpg") or found.lower().endswith(".jpeg"):
+                mime = "image/jpeg"
+            if found.lower().endswith(".svg"):
+                mime = "image/svg+xml"
+            bg_url = f"data:{mime};base64,{b64}"
+            return f"""
+            <style>
+            .stApp {{ background-image: url('{bg_url}'); background-size: cover; background-position: center top; background-repeat: no-repeat; }}
+            .block-container {{ background-color: rgba(255,255,255,0.82); border-radius: 12px; padding: 1.2rem 1.4rem; }}
+            button.stButton>button {{ background-color: #1f618d; color: white; border-radius: 8px; }}
+            .stProgress>div>div>div {{ background: #1f618d; }}
+            h1, h2, h3 {{ color: #0b3d91; }}
+            </style>
+            """
+        except Exception:
+            # 파일 읽기 실패 시 폴백
+            pass
+
+    # 기본 그라데이션 폴백
+    return """
+    <style>
+    .stApp { background: linear-gradient(180deg, #eaf6ff 0%, #d6f0ff 100%); }
+    .css-1d391kg { background-color: rgba(255,255,255,0.6); }
+    .block-container { border-radius: 12px; padding: 1.2rem 1.4rem; }
+    button.stButton>button { background-color: #1f618d; color: white; border-radius: 8px; }
+    .stProgress>div>div>div { background: #1f618d; }
+    h1, h2, h3 { color: #0b3d91; }
+    </style>
+    """
+
+
+st.markdown(_build_background_css(), unsafe_allow_html=True)
 
 PLAYER_POOL = [
     "강호", "민수", "지훈", "서연", "예린", "도윤", "수아", "현우", "유진", "준호",
@@ -71,6 +132,24 @@ def generate_candidates(n=18):
 
 def draw_baseball_field(team_players):
     """야구 경기장에 선수 이름을 배치한 그림 생성"""
+    # 사용자 폰트 로드: 우선적으로 프로젝트의 fonts/NanumGothic-Regular.ttf 사용
+    font_prop = None
+    try:
+        fonts_dir = os.path.join(os.getcwd(), "fonts")
+        # 우선 지정된 NanumGothic 파일을 찾는다
+        preferred = os.path.join(fonts_dir, "NanumGothic-Regular.ttf")
+        if os.path.isfile(preferred):
+            font_prop = FontProperties(fname=preferred)
+        else:
+            # 지정된 파일이 없으면 폴더의 첫번째 ttf/otf를 시도
+            if os.path.isdir(fonts_dir):
+                ttf_files = [f for f in os.listdir(fonts_dir) if f.lower().endswith((".ttf", ".otf"))]
+                if ttf_files:
+                    font_path = os.path.join(fonts_dir, ttf_files[0])
+                    font_prop = FontProperties(fname=font_path)
+    except Exception:
+        font_prop = None
+
     fig, ax = plt.subplots(figsize=(10, 10))
     
     # 배경색 (잔디)
@@ -82,7 +161,7 @@ def draw_baseball_field(team_players):
     # 내야 (다이아몬드)
     diamond = patches.Polygon([[5, 1], [9, 5], [5, 9], [1, 5]], 
                              closed=True, edgecolor='white', 
-                             facecolor='#8B7355', linewidth=2)
+                             facecolor='#d2b48c', linewidth=2)
     ax.add_patch(diamond)
     
     # 홈플레이트
@@ -91,30 +170,86 @@ def draw_baseball_field(team_players):
     ax.add_patch(home)
     
     # 포지션 좌표 (중심 기준)
-    # 순서: 0=투수, 1=포수, 2=1루, 3=2루, 4=3루, 5=유격수, 6=좌익, 7=중견, 8=우익
+    # 순서: 0=지명타자(DH), 1=포수, 2=1루, 3=2루, 4=3루, 5=유격수, 6=좌익, 7=중견, 8=우익
     positions = {
-        0: (5, 3.5),      # 투수 (마운드)
+        # DH은 투수를 대신하는 자리로 홈 근처 측면에 배치
+        0: (5, 2.2),      # 지명타자 (DH)
         1: (5, 1.3),      # 포수 (홈플레이트 뒤)
         2: (8.5, 5),      # 1루수
         3: (6.5, 6.5),    # 2루수
-        4: (3.5, 6.5),    # 3루수
+        4: (3.5, 7.2),    # 3루수 (조금 더 위쪽으로 이동)
         5: (3.5, 3.5),    # 유격수
         6: (1, 8),        # 좌익수
         7: (5, 8.5),      # 중견수
         8: (9, 8)         # 우익수
     }
+
+    # 특정 선수의 위치를 고정/조정하는 규칙
+    # 1) '박지환'이 팀에 있으면 왼쪽 꼭짓점(다이아몬드의 왼쪽 꼭지점, (1,5))에 배치
+    # 2) '강민호'가 팀에 있으면 '구자욱'의 위치 오른쪽에 배치
+    extra_draws = []
+    try:
+        # 팀 선수 목록이 리스트인지 확인
+        if isinstance(team_players, (list, tuple)):
+            # 박지환 처리
+            if '박지환' in team_players:
+                idx_bj = team_players.index('박지환')
+                # 왼쪽 다이아몬드 꼭짓점 좌표로 이동
+                positions[idx_bj] = (1.0, 5.0)
+            else:
+                # 팀에 없더라도 왼쪽 꼭짓점에 표시하길 원하면 extra_draws에 추가
+                # (사용자가 팀에 항상 포함한다고 가정하지 않음) — 여기서는 팀에 없으면 그리지 않음
+                pass
+
+            # 구자욱과 강민호 처리
+            if '구자욱' in team_players:
+                idx_gj = team_players.index('구자욱')
+                # 구자욱의 좌표(이미 positions에 설정되어 있을 것)
+                gj_pos = positions.get(idx_gj)
+                if gj_pos is not None:
+                    gx, gy = gj_pos
+                    # 오른쪽 옆(약간의 간격)으로 배치
+                    target_x = min(gx + 0.6, 9.5)
+                    target_y = gy
+                    if '강민호' in team_players:
+                        idx_km = team_players.index('강민호')
+                        positions[idx_km] = (target_x, target_y)
+                    else:
+                        # 만약 강민호가 팀에 없다면 extra_draws로 그릴 수 있도록 추가
+                        extra_draws.append(('강민호', (target_x, target_y)))
+    except Exception:
+        # 좌표 조정에서 오류 발생시 안전하게 무시하고 기본 배치 사용
+        extra_draws = []
     
     # 각 포지션에 선수 이름 표시
     for pos_idx, (x, y) in positions.items():
-        if pos_idx < len(team_players):
-            player_name = team_players[pos_idx]
-            # 선수 위치 표시
-            circle = patches.Circle((x, y), 0.35, facecolor='yellow', 
-                                   edgecolor='white', linewidth=2)
-            ax.add_patch(circle)
-            # 선수 이름
+        # 안전하게 선수 이름 가져오기
+        player_name = ""
+        if isinstance(team_players, (list, tuple)) and pos_idx < len(team_players):
+            player_name = team_players[pos_idx] or ""
+
+        # 선수 위치 표시
+        circle = patches.Circle((x, y), 0.35, facecolor='white', 
+                       edgecolor='#003366', linewidth=2)
+        ax.add_patch(circle)
+        # 선수 이름 (한글 폰트가 로드되면 사용)
+        if font_prop is not None:
             ax.text(x, y, player_name, ha='center', va='center', 
-                   fontsize=9, fontweight='bold', color='black')
+                   fontsize=9, fontweight='bold', color='#003366', fontproperties=font_prop)
+        else:
+            ax.text(x, y, player_name, ha='center', va='center', 
+                   fontsize=9, fontweight='bold', color='#003366')
+    # extra_draws에 추가된 별도 표시들 (예: 강민호가 팀에 없을 때 구자욱 옆에 표시)
+    try:
+        for name, (ex, ey) in extra_draws:
+            circle = patches.Circle((ex, ey), 0.35, facecolor='white', edgecolor='#003366', linewidth=2)
+            ax.add_patch(circle)
+            if font_prop is not None:
+                ax.text(ex, ey, name, ha='center', va='center', fontsize=9, fontweight='bold', color='#003366', fontproperties=font_prop)
+            else:
+                ax.text(ex, ey, name, ha='center', va='center', fontsize=9, fontweight='bold', color='#003366')
+    except Exception:
+        pass
     
     # 축 제거
     ax.set_xticks([])
@@ -128,25 +263,22 @@ def draw_baseball_field(team_players):
     return fig
 
 def make_hint(left, right):
-    # 소수 비교 힌트 생성: 어떤 자리에서 차이가 나는지 알려줌(정답 직접 노출 X)
+    # 소수 비교 힌트 생성: 어느 자리(정수/소수 자리)를 보면 좋을지 안내 (숫자 노출 없음)
     la = left['avg_val']
     ra = right['avg_val']
     # 정수 부분
-    lint = int(la)
-    rint = int(ra)
-    if lint != rint:
-        return f"다시 생각해보세요! 정수 부분을 먼저 비교하세요. 왼쪽: {lint}, 오른쪽: {rint}"
+    if int(la) != int(ra):
+        return "다시 생각해보세요! 정수 부분을 먼저 비교해 보세요."
     # 소수 첫째 자리
-    l1 = int(la * 10) % 10
-    r1 = int(ra * 10) % 10
-    if l1 != r1:
-        return f"다시 생각해보세요! 정수 부분은 같습니다. 소수 첫째 자리(0.1)를 비교하세요. 왼쪽: {l1}, 오른쪽: {r1}"
+    if int(la * 10) % 10 != int(ra * 10) % 10:
+        return "다시 생각해보세요! 소수 첫째자리를 비교해 보세요."
     # 소수 둘째 자리
-    l2 = int(la * 100) % 10
-    r2 = int(ra * 100) % 10
-    if l2 != r2:
-        return f"다시 생각해보세요! 첫째 자리도 같습니다. 소수 둘째 자리(0.01)를 비교하세요. 왼쪽: {l2}, 오른쪽: {r2}"
-    return "다시 생각해보세요! 두 선수의 타율이 아주 비슷합니다. 소수 셋째 자리까지 확인해 보세요."
+    if int(la * 100) % 10 != int(ra * 100) % 10:
+        return "다시 생각해보세요! 소수 둘째자리를 비교해 보세요."
+    return "다시 생각해보세요! 소수 셋째자리를 비교해 보세요."
+
+
+# Removed draw_fireworks static image (user requested it deleted).
 
 
 # 초기 상태 설정
@@ -158,6 +290,7 @@ if 'started' not in st.session_state:
     st.session_state.candidates = []
     st.session_state.message = ""
     st.session_state.awaiting_next = False
+    st.session_state.pair_swapped = []
 
 st.title("⚾ 나는야 야구 스카우터!: 강한 팀을 만들어라")
 
@@ -180,6 +313,8 @@ if not st.session_state.started:
         st.session_state.candidates = generate_candidates(18)
         st.session_state.message = ""
         st.session_state.awaiting_next = False
+        # 각 라운드마다 좌우 배치를 무작위로 섞을 플래그 생성
+        st.session_state.pair_swapped = [random.choice([True, False]) for _ in range(9)]
 
 else:
     # 게임 진행 화면
@@ -191,20 +326,35 @@ else:
     # 모든 라운드 완료 시
     if st.session_state.round >= 9:
         st.success("축하합니다! 팀 완성🎉 모든 포지션을 채웠습니다.")
-        
+        # 축하 연출: 풍선 애니메이션 + 폭죽 그래픽
+        try:
+            st.balloons()
+        except Exception:
+            pass
+
         st.markdown("## ⚾ 당신의 스카우팅 팀 라인업")
-        
+
+        # (폭죽 정적 그림은 삭제됨) — 풍선 애니메이션만 표시합니다.
+
         # 야구 경기장 그림 생성 및 표시
         team_players = st.session_state.team
         fig = draw_baseball_field(team_players)
         st.pyplot(fig)
-        
+
         st.markdown("---")
         st.info("당신의 스카우팅이 완료되었습니다! 당신은 뛰어난 스카우터입니다! ⭐")
     else:
         idx = st.session_state.round * 2
-        left = candidates[idx]
-        right = candidates[idx + 1]
+        # 이 라운드에서 좌우를 섞을지 확인
+        swap = False
+        if isinstance(st.session_state.pair_swapped, (list, tuple)) and len(st.session_state.pair_swapped) > st.session_state.round:
+            swap = bool(st.session_state.pair_swapped[st.session_state.round])
+        if swap:
+            left = candidates[idx + 1]
+            right = candidates[idx]
+        else:
+            left = candidates[idx]
+            right = candidates[idx + 1]
 
         col1, col2 = st.columns(2)
         with col1:
